@@ -317,16 +317,25 @@ class RuskMediaBot(commands.Bot):
         assigned_roles = []
         created_channels = []
         
-        # First, remove any old hierarchical roles (roles that match the pattern gender-age-content-tier)
+        # First, remove any old hierarchical roles that don't match the user's current gender
+        user_gender = screening_data.get('gender', ['unknown'])[0]
         old_roles_to_remove = []
         for role in member.roles:
             role_name = role.name
             # Check if this is a hierarchical role (contains hyphens and is not "Screened User")
             if role_name != "Screened User" and role_name.count('-') >= 2:
-                # Only remove if it's not in our new roles list
-                if role_name not in roles_to_create:
+                # Remove if:
+                # 1. It's not in our new roles list, OR
+                # 2. It's a role for a different gender than the user's current gender
+                role_gender = role_name.split('-')[0]  # Get the gender part of the role name
+                should_remove = (
+                    role_name not in roles_to_create or 
+                    (role_gender != user_gender and role_gender in ['male', 'female', 'non_binary'])
+                )
+                
+                if should_remove:
                     old_roles_to_remove.append(role)
-                    logger.info(f"Will remove old role: {role_name} from {member}")
+                    logger.info(f"Will remove old role: {role_name} from {member} (reason: {'not in new roles' if role_name not in roles_to_create else 'wrong gender'})")
         
         # Remove old roles
         if old_roles_to_remove:
@@ -337,6 +346,13 @@ class RuskMediaBot(commands.Bot):
                 logger.error(f"Failed to remove old roles: {e}")
         
         for i, role_name in enumerate(roles_to_create):
+            # Safety check: Ensure role gender matches user gender
+            if role_name != "Screened User" and role_name.count('-') >= 2:
+                role_gender = role_name.split('-')[0]
+                if role_gender != user_gender:
+                    logger.error(f"CRITICAL ERROR: Attempted to assign {role_name} (gender: {role_gender}) to user {member} (gender: {user_gender})")
+                    continue  # Skip this role assignment
+            
             # Create role if doesn't exist
             role = await self.create_role_if_not_exists(guild, role_name)
             
