@@ -162,6 +162,37 @@ class RuskMediaBot(commands.Bot):
                 logger.error(f"Failed to create channel {channel_name}: {e}")
         return channel
     
+    async def fix_channel_permissions(self, guild: discord.Guild):
+        """Fix permissions for all hierarchical channels to ensure proper access control"""
+        logger.info("Checking and fixing channel permissions...")
+        
+        # Find all hierarchical channels (channels with 3+ hyphens)
+        hierarchical_channels = []
+        for channel in guild.channels:
+            if isinstance(channel, discord.TextChannel) and channel.name.count('-') >= 3:
+                hierarchical_channels.append(channel)
+        
+        for channel in hierarchical_channels:
+            try:
+                # Get the role that should have access to this channel
+                channel_role = discord.utils.get(guild.roles, name=channel.name)
+                
+                if channel_role:
+                    # Set proper permissions
+                    overwrites = {
+                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                        guild.me: discord.PermissionOverwrite(read_messages=True),
+                        channel_role: discord.PermissionOverwrite(read_messages=True)
+                    }
+                    
+                    await channel.edit(overwrites=overwrites)
+                    logger.info(f"Fixed permissions for channel: {channel.name}")
+                else:
+                    logger.warning(f"Could not find role for channel: {channel.name}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to fix permissions for channel {channel.name}: {e}")
+    
     async def on_member_join(self, member):
         """Called when a member joins the server - AUTOMATICALLY START SCREENING"""
         logger.info(f"Member {member} joined the server - Auto-starting screening")
@@ -472,6 +503,23 @@ class RuskMediaBot(commands.Bot):
             await interaction.response.send_message("📩 Check your DMs for the screening questions!", ephemeral=True)
         else:
             await interaction.response.send_message("❗ I couldn't DM you. Please enable DMs for this server and run /start_screening again.", ephemeral=True)
+    
+    @app_commands.command(name="fix_permissions", description="Fix channel permissions (Admin only)")
+    async def fix_permissions(self, interaction: discord.Interaction):
+        """Fix permissions for all hierarchical channels"""
+        # Check if user is admin
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            await self.fix_channel_permissions(interaction.guild)
+            await interaction.followup.send("✅ Channel permissions have been fixed!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Failed to fix permissions: {e}")
+            await interaction.followup.send(f"❌ Failed to fix permissions: {str(e)}", ephemeral=True)
 
 # Bot instance
 bot = RuskMediaBot()
