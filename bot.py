@@ -44,6 +44,12 @@ class RuskMediaBot(commands.Bot):
             logger.info(f"User {member} already has an active screening session, skipping")
             return True
             
+        # Additional check: If user completed screening recently, skip
+        user_data = self.db.get_user(member.id)
+        if user_data and user_data.get('screening_completed'):
+            logger.info(f"User {member} already completed screening, skipping")
+            return True
+            
         # Ensure DB user exists
         self.db.add_user(
             user_id=member.id,
@@ -155,14 +161,29 @@ class RuskMediaBot(commands.Bot):
         """Create a private channel if it doesn't exist, or fix permissions if it does"""
         channel = discord.utils.get(guild.channels, name=channel_name)
         
-        # Define secure permissions
+        # Define bulletproof secure permissions
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Everyone can't see
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Bot can see and send
+            guild.default_role: discord.PermissionOverwrite(
+                read_messages=False, 
+                send_messages=False, 
+                view_channel=False,
+                connect=False,
+                speak=False
+            ),  # @everyone explicitly denied everything
+            guild.me: discord.PermissionOverwrite(
+                read_messages=True, 
+                send_messages=True, 
+                view_channel=True,
+                manage_channels=True
+            )  # Bot has full access
         }
         
         if role:
-            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Role can see and send
+            overwrites[role] = discord.PermissionOverwrite(
+                read_messages=True, 
+                send_messages=True, 
+                view_channel=True
+            )  # Only this specific role can access
         
         if not channel:
             # Create new channel with secure permissions
@@ -211,11 +232,26 @@ class RuskMediaBot(commands.Bot):
                 channel_role = discord.utils.get(guild.roles, name=channel.name)
                 
                 if channel_role:
-                    # Set secure permissions
+                    # Set bulletproof secure permissions
                     overwrites = {
-                        guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Everyone can't see
-                        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),  # Bot can see and send
-                        channel_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Role can see and send
+                        guild.default_role: discord.PermissionOverwrite(
+                            read_messages=False, 
+                            send_messages=False, 
+                            view_channel=False,
+                            connect=False,
+                            speak=False
+                        ),  # @everyone explicitly denied everything
+                        guild.me: discord.PermissionOverwrite(
+                            read_messages=True, 
+                            send_messages=True, 
+                            view_channel=True,
+                            manage_channels=True
+                        ),  # Bot has full access
+                        channel_role: discord.PermissionOverwrite(
+                            read_messages=True, 
+                            send_messages=True, 
+                            view_channel=True
+                        )  # Only this specific role can access
                     }
                     
                     await channel.edit(overwrites=overwrites)
@@ -224,8 +260,19 @@ class RuskMediaBot(commands.Bot):
                     logger.warning(f"Could not find role for channel: {channel.name} - securing channel anyway")
                     # Even if no role exists, secure the channel so no one can see it
                     overwrites = {
-                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                        guild.default_role: discord.PermissionOverwrite(
+                            read_messages=False, 
+                            send_messages=False, 
+                            view_channel=False,
+                            connect=False,
+                            speak=False
+                        ),  # @everyone explicitly denied everything
+                        guild.me: discord.PermissionOverwrite(
+                            read_messages=True, 
+                            send_messages=True, 
+                            view_channel=True,
+                            manage_channels=True
+                        )  # Bot has full access
                     }
                     await channel.edit(overwrites=overwrites)
                     logger.info(f"Secured channel without role: {channel.name}")
@@ -460,6 +507,13 @@ class RuskMediaBot(commands.Bot):
         # Debug: Log final roles after assignment
         final_roles = [role.name for role in member.roles]
         logger.info(f"Final roles for {member} after assignment: {final_roles}")
+        
+        # CRITICAL: Force fix permissions for all channels after role assignment
+        try:
+            await self.fix_channel_permissions(guild)
+            logger.info(f"Force-fixed permissions after role assignment for {member}")
+        except Exception as e:
+            logger.error(f"Failed to force-fix permissions: {e}")
         
         # Send completion message
         embed = discord.Embed(
