@@ -172,15 +172,10 @@ class RuskMediaBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Failed to create channel {channel_name}: {e}")
         else:
-            # Channel exists - NUCLEAR OPTION: Clear all permissions first
+            # Channel exists - Apply secure permissions directly
             try:
-                # Step 1: Clear all existing overwrites
-                await channel.edit(overwrites={})
-                logger.info(f"Cleared all permissions for existing channel: {channel_name}")
-                
-                # Step 2: Add only the permissions we want
                 await channel.edit(overwrites=overwrites)
-                logger.info(f"NUCLEAR FIX: Applied secure permissions to existing channel: {channel_name}")
+                logger.info(f"SECURED: Applied secure permissions to existing channel: {channel_name}")
             except Exception as e:
                 logger.error(f"Failed to fix permissions for channel {channel_name}: {e}")
         
@@ -223,14 +218,7 @@ class RuskMediaBot(commands.Bot):
                     logger.info(f"    - {target}: read={overwrite.read_messages}, send={overwrite.send_messages}")
                 
                 if channel_role:
-                    # NUCLEAR OPTION: Clear ALL permissions first, then add only what we want
-                    # This removes any inherited permissions or role hierarchy issues
-                    
-                    # Step 1: Clear all existing overwrites
-                    await channel.edit(overwrites={})
-                    logger.info(f"Cleared all permissions for channel: {channel.name}")
-                    
-                    # Step 2: Add only the permissions we want
+                    # CRITICAL FIX: Set permissions in one step to avoid making channels public
                     overwrites = {
                         guild.default_role: discord.PermissionOverwrite(
                             read_messages=False, 
@@ -254,7 +242,7 @@ class RuskMediaBot(commands.Bot):
                     }
                     
                     await channel.edit(overwrites=overwrites)
-                    logger.info(f"NUCLEAR FIX: Channel {channel.name} now ONLY accessible to {channel_role.name}")
+                    logger.info(f"SECURED: Channel {channel.name} now ONLY accessible to {channel_role.name}")
                 else:
                     logger.warning(f"Could not find role for channel: {channel.name} - securing channel anyway")
                     # Even if no role exists, secure the channel so no one can see it
