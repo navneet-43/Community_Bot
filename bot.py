@@ -44,12 +44,6 @@ class RuskMediaBot(commands.Bot):
             logger.info(f"User {member} already has an active screening session, skipping")
             return True
             
-        # Additional check: If user completed screening recently, skip
-        user_data = self.db.get_user(member.id)
-        if user_data and user_data.get('screening_completed'):
-            logger.info(f"User {member} already completed screening, skipping")
-            return True
-            
         # Ensure DB user exists
         self.db.add_user(
             user_id=member.id,
@@ -286,11 +280,28 @@ class RuskMediaBot(commands.Bot):
         """Called when a member joins the server - AUTOMATICALLY START SCREENING"""
         logger.info(f"Member {member} joined the server - Auto-starting screening")
         
-        # Check if user already completed screening
-        user_data = self.db.get_user(member.id)
-        if user_data and user_data.get('screening_completed'):
-            logger.info(f"User {member} already completed screening")
-            return
+        # ALWAYS treat joining users as new users (including rejoins)
+        # Clear any previous screening data to ensure fresh start
+        logger.info(f"Treating {member} as new user - clearing previous data if any")
+        self.db.remove_user(member.id)  # Clear previous screening data
+        
+        # Also clear any active screening sessions
+        if member.id in self.active_screenings:
+            del self.active_screenings[member.id]
+            logger.info(f"Cleared active screening session for {member}")
+        
+        # Remove any existing hierarchical roles to start fresh
+        roles_to_remove = []
+        for role in member.roles:
+            if role.name != "@everyone" and role.name.count('-') >= 2:
+                roles_to_remove.append(role)
+        
+        if roles_to_remove:
+            try:
+                await member.remove_roles(*roles_to_remove)
+                logger.info(f"Removed {len(roles_to_remove)} old roles from {member} for fresh start")
+            except Exception as e:
+                logger.error(f"Failed to remove old roles from {member}: {e}")
         # Attempt DM-based flow
         dm_ok = await self.start_screening_flow(member, "AUTO_JOIN")
         if not dm_ok:
