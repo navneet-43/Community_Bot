@@ -306,6 +306,10 @@ class RuskMediaBot(commands.Bot):
         logger.info(f"Screening data for {member}: {screening_data}")
         logger.info(f"Roles to create for {member}: {roles_to_create}")
         
+        # Debug: Log what the user currently has
+        current_roles = [role.name for role in member.roles]
+        logger.info(f"Current roles for {member} before assignment: {current_roles}")
+        
         # Get user segments
         user_segments = self.screening_logic.get_user_segments(screening_data)
         
@@ -346,6 +350,11 @@ class RuskMediaBot(commands.Bot):
                 logger.error(f"Failed to remove old roles: {e}")
         
         for i, role_name in enumerate(roles_to_create):
+            # CRITICAL CHECK: Ensure this role is actually in our roles_to_create list
+            if role_name not in roles_to_create:
+                logger.error(f"CRITICAL ERROR: Role {role_name} not in roles_to_create list!")
+                continue
+            
             # Safety check: Ensure role gender matches user gender
             if role_name != "Screened User" and role_name.count('-') >= 2:
                 role_gender = role_name.split('-')[0]
@@ -365,6 +374,8 @@ class RuskMediaBot(commands.Bot):
                         logger.info(f"Assigned role {role_name} to {member}")
                     except Exception as e:
                         logger.error(f"Failed to assign role {role_name}: {e}")
+                else:
+                    logger.info(f"User {member} already has role {role_name}")
                 
                 # Create corresponding channel if doesn't exist
                 if i < len(channels_to_create):
@@ -372,6 +383,10 @@ class RuskMediaBot(commands.Bot):
                     channel = await self.create_channel_if_not_exists(guild, channel_name, role)
                     if channel:
                         created_channels.append(channel_name)
+        
+        # Debug: Log final roles after assignment
+        final_roles = [role.name for role in member.roles]
+        logger.info(f"Final roles for {member} after assignment: {final_roles}")
         
         # Send completion message
         embed = discord.Embed(
