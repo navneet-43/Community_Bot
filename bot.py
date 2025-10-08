@@ -172,10 +172,10 @@ class RuskMediaBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Failed to create channel {channel_name}: {e}")
         else:
-            # Channel exists - Apply secure permissions directly
+            # Channel exists - ensure it has secure permissions
             try:
                 await channel.edit(overwrites=overwrites)
-                logger.info(f"SECURED: Applied secure permissions to existing channel: {channel_name}")
+                logger.info(f"Fixed permissions for existing channel: {channel_name}")
             except Exception as e:
                 logger.error(f"Failed to fix permissions for channel {channel_name}: {e}")
         
@@ -210,56 +210,25 @@ class RuskMediaBot(commands.Bot):
                 # Get the role that should have access to this channel
                 channel_role = discord.utils.get(guild.roles, name=channel.name)
                 
-                # Debug: Log current permissions
-                logger.info(f"Channel: {channel.name}")
-                logger.info(f"  - Category: {channel.category.name if channel.category else 'None'}")
-                logger.info(f"  - Current overwrites: {len(channel.overwrites)}")
-                for target, overwrite in channel.overwrites.items():
-                    logger.info(f"    - {target}: read={overwrite.read_messages}, send={overwrite.send_messages}")
-                
                 if channel_role:
-                    # CRITICAL FIX: Set permissions in one step to avoid making channels public
+                    # Set secure permissions
                     overwrites = {
-                        guild.default_role: discord.PermissionOverwrite(
-                            read_messages=False, 
-                            send_messages=False,
-                            view_channel=False,
-                            connect=False,
-                            speak=False
-                        ),  # Everyone explicitly denied everything
-                        guild.me: discord.PermissionOverwrite(
-                            read_messages=True, 
-                            send_messages=True,
-                            view_channel=True,
-                            manage_channels=True,
-                            manage_permissions=True
-                        ),  # Bot has full access
-                        channel_role: discord.PermissionOverwrite(
-                            read_messages=True, 
-                            send_messages=True,
-                            view_channel=True
-                        )  # Only this specific role can access
+                        guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Everyone can't see
+                        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),  # Bot can see and send
+                        channel_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Role can see and send
                     }
                     
                     await channel.edit(overwrites=overwrites)
-                    logger.info(f"SECURED: Channel {channel.name} now ONLY accessible to {channel_role.name}")
+                    logger.info(f"Fixed permissions for channel: {channel.name}")
                 else:
                     logger.warning(f"Could not find role for channel: {channel.name} - securing channel anyway")
                     # Even if no role exists, secure the channel so no one can see it
                     overwrites = {
-                        guild.default_role: discord.PermissionOverwrite(
-                            read_messages=False, 
-                            send_messages=False,
-                            view_channel=False
-                        ),
-                        guild.me: discord.PermissionOverwrite(
-                            read_messages=True, 
-                            send_messages=True,
-                            view_channel=True
-                        )
+                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
                     }
                     await channel.edit(overwrites=overwrites)
-                    logger.info(f"Secured channel without role: {channel.name} - NO ONE can access")
+                    logger.info(f"Secured channel without role: {channel.name}")
                     
             except Exception as e:
                 logger.error(f"Failed to fix permissions for channel {channel.name}: {e}")
@@ -593,58 +562,6 @@ class RuskMediaBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to fix permissions: {e}")
             await interaction.followup.send(f"❌ Failed to fix permissions: {str(e)}", ephemeral=True)
-    
-    @app_commands.command(name="check_user_channels", description="Check what channels a user can see (Admin only)")
-    async def check_user_channels(self, interaction: discord.Interaction, user: discord.Member):
-        """Check what channels a specific user can see"""
-        # Check if user is admin
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
-            return
-        
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # Get all hierarchical channels
-            hierarchical_channels = []
-            for channel in interaction.guild.channels:
-                if isinstance(channel, discord.TextChannel) and channel.name.count('-') >= 3:
-                    hierarchical_channels.append(channel)
-            
-            # Check which channels the user can see
-            visible_channels = []
-            for channel in hierarchical_channels:
-                if channel.permissions_for(user).read_messages:
-                    visible_channels.append(channel.name)
-            
-            # Get user's roles
-            user_roles = [role.name for role in user.roles if role.name != "@everyone"]
-            
-            embed = discord.Embed(
-                title=f"Channel Access for {user.display_name}",
-                color=0x0099ff
-            )
-            embed.add_field(
-                name="User's Roles", 
-                value="\n".join(user_roles) if user_roles else "No roles", 
-                inline=False
-            )
-            embed.add_field(
-                name="Visible Channels", 
-                value="\n".join(visible_channels) if visible_channels else "No channels visible", 
-                inline=False
-            )
-            embed.add_field(
-                name="Total Hierarchical Channels", 
-                value=str(len(hierarchical_channels)), 
-                inline=True
-            )
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            
-        except Exception as e:
-            logger.error(f"Failed to check user channels: {e}")
-            await interaction.followup.send(f"❌ Failed to check channels: {str(e)}", ephemeral=True)
 
 # Bot instance
 bot = RuskMediaBot()
