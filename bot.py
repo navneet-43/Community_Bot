@@ -119,6 +119,14 @@ class RuskMediaBot(commands.Bot):
         
         # Initialize default campaigns
         await self.initialize_campaigns()
+        
+        # CRITICAL: Fix all channel permissions on startup to ensure security
+        for guild in self.guilds:
+            try:
+                await self.fix_channel_permissions(guild)
+                logger.info(f"Fixed channel permissions for guild: {guild.name}")
+            except Exception as e:
+                logger.error(f"Failed to fix channel permissions for {guild.name}: {e}")
     
     async def initialize_campaigns(self):
         """Initialize default campaigns in the database"""
@@ -144,22 +152,33 @@ class RuskMediaBot(commands.Bot):
         return role
     
     async def create_channel_if_not_exists(self, guild: discord.Guild, channel_name: str, role: discord.Role = None) -> Optional[discord.TextChannel]:
-        """Create a private channel if it doesn't exist"""
+        """Create a private channel if it doesn't exist, or fix permissions if it does"""
         channel = discord.utils.get(guild.channels, name=channel_name)
+        
+        # Define secure permissions
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Everyone can't see
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Bot can see and send
+        }
+        
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Role can see and send
+        
         if not channel:
+            # Create new channel with secure permissions
             try:
-                overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                    guild.me: discord.PermissionOverwrite(read_messages=True)
-                }
-                
-                if role:
-                    overwrites[role] = discord.PermissionOverwrite(read_messages=True)
-                
                 channel = await guild.create_text_channel(channel_name, overwrites=overwrites)
-                logger.info(f"Created channel: {channel_name}")
+                logger.info(f"Created secure channel: {channel_name}")
             except Exception as e:
                 logger.error(f"Failed to create channel {channel_name}: {e}")
+        else:
+            # Channel exists - ensure it has secure permissions
+            try:
+                await channel.edit(overwrites=overwrites)
+                logger.info(f"Fixed permissions for existing channel: {channel_name}")
+            except Exception as e:
+                logger.error(f"Failed to fix permissions for channel {channel_name}: {e}")
+        
         return channel
     
     async def fix_channel_permissions(self, guild: discord.Guild):
@@ -172,26 +191,49 @@ class RuskMediaBot(commands.Bot):
             if isinstance(channel, discord.TextChannel) and channel.name.count('-') >= 3:
                 hierarchical_channels.append(channel)
         
-        for channel in hierarchical_channels:
+        # Also find channels that might be user-specific (contain gender-age-content-tier pattern)
+        user_specific_channels = []
+        for channel in guild.channels:
+            if isinstance(channel, discord.TextChannel):
+                # Check if channel name matches pattern: gender-age-content-tier
+                parts = channel.name.split('-')
+                if len(parts) >= 4:
+                    # Check if it looks like a user-specific channel
+                    if parts[0] in ['male', 'female', 'non_binary'] and parts[3] in ['tier1', 'tier2', 'tier3']:
+                        user_specific_channels.append(channel)
+        
+        # Combine and deduplicate
+        all_channels_to_fix = list(set(hierarchical_channels + user_specific_channels))
+        
+        for channel in all_channels_to_fix:
             try:
                 # Get the role that should have access to this channel
                 channel_role = discord.utils.get(guild.roles, name=channel.name)
                 
                 if channel_role:
-                    # Set proper permissions
+                    # Set secure permissions
                     overwrites = {
-                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                        guild.me: discord.PermissionOverwrite(read_messages=True),
-                        channel_role: discord.PermissionOverwrite(read_messages=True)
+                        guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Everyone can't see
+                        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),  # Bot can see and send
+                        channel_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)  # Role can see and send
                     }
                     
                     await channel.edit(overwrites=overwrites)
                     logger.info(f"Fixed permissions for channel: {channel.name}")
                 else:
-                    logger.warning(f"Could not find role for channel: {channel.name}")
+                    logger.warning(f"Could not find role for channel: {channel.name} - securing channel anyway")
+                    # Even if no role exists, secure the channel so no one can see it
+                    overwrites = {
+                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                    }
+                    await channel.edit(overwrites=overwrites)
+                    logger.info(f"Secured channel without role: {channel.name}")
                     
             except Exception as e:
                 logger.error(f"Failed to fix permissions for channel {channel.name}: {e}")
+        
+        logger.info(f"Completed permission fix for {len(all_channels_to_fix)} channels")
     
     async def on_member_join(self, member):
         """Called when a member joins the server - AUTOMATICALLY START SCREENING"""
