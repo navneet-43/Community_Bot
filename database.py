@@ -107,6 +107,25 @@ class DatabaseManager:
             print(f"Error getting user: {e}")
             return None
     
+    def remove_user(self, user_id: int) -> bool:
+        """Remove user and all their data from the database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Remove from users table
+            cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+            
+            # Remove from screening_sessions table
+            cursor.execute('DELETE FROM screening_sessions WHERE user_id = ?', (user_id,))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error removing user: {e}")
+            return False
+    
     def update_user_screening(self, user_id: int, screening_data: Dict, 
                             roles_assigned: List[str]) -> bool:
         """Update user's screening data and roles"""
