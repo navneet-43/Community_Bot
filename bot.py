@@ -39,6 +39,11 @@ class RuskMediaBot(commands.Bot):
         """Create DB records and attempt to DM the user the first question.
         Returns True if a DM was successfully sent, False if DM failed.
         """
+        # Prevent duplicate screening sessions
+        if member.id in self.active_screenings:
+            logger.info(f"User {member} already has an active screening session, skipping")
+            return True
+            
         # Ensure DB user exists
         self.db.add_user(
             user_id=member.id,
@@ -295,6 +300,25 @@ class RuskMediaBot(commands.Bot):
         assigned_roles = []
         created_channels = []
         
+        # First, remove any old hierarchical roles (roles that match the pattern gender-age-content-tier)
+        old_roles_to_remove = []
+        for role in member.roles:
+            role_name = role.name
+            # Check if this is a hierarchical role (contains hyphens and is not "Screened User")
+            if role_name != "Screened User" and role_name.count('-') >= 2:
+                # Only remove if it's not in our new roles list
+                if role_name not in roles_to_create:
+                    old_roles_to_remove.append(role)
+                    logger.info(f"Will remove old role: {role_name} from {member}")
+        
+        # Remove old roles
+        if old_roles_to_remove:
+            try:
+                await member.remove_roles(*old_roles_to_remove)
+                logger.info(f"Removed {len(old_roles_to_remove)} old roles from {member}")
+            except Exception as e:
+                logger.error(f"Failed to remove old roles: {e}")
+        
         for i, role_name in enumerate(roles_to_create):
             # Create role if doesn't exist
             role = await self.create_role_if_not_exists(guild, role_name)
@@ -346,6 +370,7 @@ class RuskMediaBot(commands.Bot):
         
         # Clean up active screening
         del self.active_screenings[user_id]
+        logger.info(f"Cleaned up screening session for {member}")
         
         # Send welcome message to channels
         for channel_name in created_channels:
