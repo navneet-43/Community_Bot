@@ -7,7 +7,13 @@ from datetime import datetime
 from typing import Optional, Dict, List, Any
 import os
 
-from config import *
+# Try to load from railway_config first, then fall back to config
+try:
+    from railway_config import *
+    print("Using Railway configuration")
+except ImportError:
+    from config import *
+    print("Using local configuration")
 from database import DatabaseManager
 from screening_logic import ScreeningLogic
 
