@@ -6,8 +6,6 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 import os
-from aiohttp import web
-import threading
 
 from config import *
 from database import DatabaseManager
@@ -399,26 +397,11 @@ class RuskMediaBot(commands.Bot):
 # Bot instance
 bot = RuskMediaBot()
 
-# Simple HTTP server for health checks (required by some hosting platforms)
-async def health_check(request):
-    return web.Response(text="Bot is running!", status=200)
-
-def start_http_server():
-    app = web.Application()
-    app.router.add_get('/', health_check)
-    app.router.add_get('/health', health_check)
-    web.run_app(app, host='0.0.0.0', port=int(os.getenv('PORT', 8000)))
-
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         logger.error("DISCORD_TOKEN not found in environment variables")
         exit(1)
     
-    # Start HTTP server in background thread
-    http_thread = threading.Thread(target=start_http_server, daemon=True)
-    http_thread.start()
-    
-    # Start Discord bot
     bot.run(DISCORD_TOKEN)
 
 
