@@ -5,6 +5,7 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Any
+import os
 
 from config import *
 from database import DatabaseManager
@@ -27,10 +28,60 @@ class RuskMediaBot(commands.Bot):
         self.db = DatabaseManager(DATABASE_PATH)
         self.screening_logic = ScreeningLogic()
         self.active_screenings = {}
+
+    async def start_screening_flow(self, member: discord.Member, campaign_label: str) -> bool:
+        """Create DB records and attempt to DM the user the first question.
+        Returns True if a DM was successfully sent, False if DM failed.
+        """
+        # Ensure DB user exists
+        self.db.add_user(
+            user_id=member.id,
+            username=member.name,
+            display_name=member.display_name,
+            campaign=campaign_label
+        )
+
+        # Start screening session
+        session_id = self.db.start_screening_session(member.id, campaign_label)
+        if not session_id:
+            logger.error(f"Failed to start screening session for {member}")
+            return False
+
+        # Track active screening in-memory
+        self.active_screenings[member.id] = {
+            'session_id': session_id,
+            'current_question': 'gender',
+            'answers': {}
+        }
+
+        # Send first question directly (no separate welcome message)
+        try:
+            await self.send_screening_question_dm(member, 'gender')
+            return True
+        except discord.Forbidden:
+            logger.warning(f"Could not DM {member}. DMs likely disabled.")
+            return False
     
     async def setup_hook(self):
         """Called when the bot is starting up"""
         try:
+            # Ensure application commands are added to the command tree
+            try:
+                # Register admin_stats if present
+                if hasattr(self, 'admin_stats'):
+                    if GUILD_ID:
+                        self.tree.add_command(self.admin_stats, guild=discord.Object(id=GUILD_ID))
+                    else:
+                        self.tree.add_command(self.admin_stats)
+                # Register start_screening if present
+                if hasattr(self, 'start_screening'):
+                    if GUILD_ID:
+                        self.tree.add_command(self.start_screening, guild=discord.Object(id=GUILD_ID))
+                    else:
+                        self.tree.add_command(self.start_screening)
+            except Exception as e:
+                logger.error(f"Failed to add app commands: {e}")
+
             if GUILD_ID:
                 synced = await self.tree.sync(guild=discord.Object(id=GUILD_ID))
                 logger.info(f"Synced {len(synced)} command(s) to guild {GUILD_ID}")
@@ -99,46 +150,26 @@ class RuskMediaBot(commands.Bot):
         if user_data and user_data.get('screening_completed'):
             logger.info(f"User {member} already completed screening")
             return
-        
-        # Add user to database
-        self.db.add_user(
-            user_id=member.id,
-            username=member.name,
-            display_name=member.display_name,
-            campaign="AUTO_JOIN"
-        )
-        
-        # Start screening session
-        session_id = self.db.start_screening_session(member.id, "AUTO_JOIN")
-        if not session_id:
-            logger.error(f"Failed to start screening session for {member}")
-            return
-        
-        # Store active screening
-        self.active_screenings[member.id] = {
-            'session_id': session_id,
-            'current_question': 'gender',
-            'answers': {}
-        }
-        
-        # Send welcome message with first question automatically
-        embed = discord.Embed(
-            title="Welcome to Rusk Media Community! 🎬",
-            description="Thank you for joining! Please complete this quick 4-question screening to get access to your personalized content channels.",
-            color=0x00ff00
-        )
-        embed.set_footer(text="This helps us match you with the right content and communities!")
-        
-        try:
-            await member.send(embed=embed)
-            await asyncio.sleep(1)
-            await self.send_screening_question_dm(member, 'gender')
-        except discord.Forbidden:
+        # Attempt DM-based flow
+        dm_ok = await self.start_screening_flow(member, "AUTO_JOIN")
+        if not dm_ok:
             logger.warning(f"Could not send DM to {member}, user has DMs disabled")
-            general_channel = discord.utils.get(member.guild.channels, name="general")
-            if general_channel:
-                await general_channel.send(
-                    f"{member.mention} Welcome! Please enable DMs to complete the screening process."
+            # Prefer an explicitly configured welcome channel if provided
+            welcome_channel_name = os.getenv('WELCOME_CHANNEL', '').strip()
+            channel_to_use = None
+            if welcome_channel_name:
+                channel_to_use = discord.utils.get(member.guild.text_channels, name=welcome_channel_name)
+            # Fallback to system channel if available
+            if not channel_to_use:
+                channel_to_use = member.guild.system_channel
+            # Final fallback to a channel named "general" if present
+            if not channel_to_use:
+                channel_to_use = discord.utils.get(member.guild.text_channels, name="general")
+            if channel_to_use:
+                view = StartScreeningView(self)
+                await channel_to_use.send(
+                    f"{member.mention} Welcome! Your DMs seem disabled. Enable DMs for this server and press the button to begin.",
+                    view=view
                 )
     
     async def send_screening_question_dm(self, member: discord.Member, question_key: str):
@@ -148,11 +179,20 @@ class RuskMediaBot(commands.Bot):
             logger.error(f"Invalid question key: {question_key}")
             return
         
-        embed = discord.Embed(
-            title=f"Question {self.get_question_number(question_key)}/4 📋",
-            description=question_data['question'],
-            color=0x0099ff
-        )
+        # For the first question, include welcome message
+        if question_key == 'gender':
+            embed = discord.Embed(
+                title="Welcome to Rusk Media Community! 🎬",
+                description="Thank you for joining! Please complete this quick 4-question screening to get access to your personalized content channels.\n\n**Question 1/4:** " + question_data['question'],
+                color=0x00ff00
+            )
+            embed.set_footer(text="This helps us match you with the right content and communities!")
+        else:
+            embed = discord.Embed(
+                title=f"Question {self.get_question_number(question_key)}/4 📋",
+                description=question_data['question'],
+                color=0x0099ff
+            )
         
         # Create select menu
         options = []
@@ -344,6 +384,16 @@ class RuskMediaBot(commands.Bot):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="start_screening", description="Start the onboarding screening via DM")
+    async def start_screening(self, interaction: discord.Interaction):
+        """Lets a user manually start the screening if they didn't receive a DM on join"""
+        member = interaction.user
+        dm_ok = await self.start_screening_flow(member, "MANUAL_START")
+        if dm_ok:
+            await interaction.response.send_message("📩 Check your DMs for the screening questions!", ephemeral=True)
+        else:
+            await interaction.response.send_message("❗ I couldn't DM you. Please enable DMs for this server and run /start_screening again.", ephemeral=True)
+
 # Bot instance
 bot = RuskMediaBot()
 
@@ -353,3 +403,19 @@ if __name__ == "__main__":
         exit(1)
     
     bot.run(DISCORD_TOKEN)
+
+
+class StartScreeningView(discord.ui.View):
+    """View with a button that retries starting the screening via DM."""
+    def __init__(self, bot: RuskMediaBot):
+        super().__init__(timeout=300)
+        self.bot_ref = bot
+
+    @discord.ui.button(label="Start Screening", style=discord.ButtonStyle.primary)
+    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = interaction.user
+        dm_ok = await self.bot_ref.start_screening_flow(member, "BUTTON_START")
+        if dm_ok:
+            await interaction.response.send_message("📩 Sent! Please check your DMs to begin.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❗ I couldn't DM you. Enable DMs for this server and press the button again.", ephemeral=True)
