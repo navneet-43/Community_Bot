@@ -398,10 +398,18 @@ class RuskMediaBot(commands.Bot):
 bot = RuskMediaBot()
 
 if __name__ == "__main__":
+    # Debug: Print all environment variables
+    logger.info("Environment variables:")
+    for key, value in os.environ.items():
+        if 'DISCORD' in key or 'GUILD' in key or 'DATABASE' in key or 'WELCOME' in key:
+            logger.info(f"{key}: {'*' * len(value) if value else 'NOT SET'}")
+    
     if not DISCORD_TOKEN:
         logger.error("DISCORD_TOKEN not found in environment variables")
+        logger.error(f"Available env vars: {list(os.environ.keys())}")
         exit(1)
     
+    logger.info("Starting Discord bot...")
     bot.run(DISCORD_TOKEN)
 
 
