@@ -270,6 +270,9 @@ class RuskMediaBot(commands.Bot):
         self.active_screenings[user_id]['answers'][question_key] = selected_values
         self.db.update_screening_session(user_id, question_key, selected_values)
         
+        # Debug: Log what the user selected
+        logger.info(f"User {member} selected for {question_key}: {selected_values}")
+        
         # Send acknowledgment
         await interaction.response.send_message(f"✅ Answer recorded!", ephemeral=True)
         
@@ -298,6 +301,10 @@ class RuskMediaBot(commands.Bot):
         role_channel_data = self.screening_logic.determine_roles_and_channels(screening_data)
         roles_to_create = role_channel_data['roles']
         channels_to_create = role_channel_data['channels']
+        
+        # Debug: Log the user's screening data
+        logger.info(f"Screening data for {member}: {screening_data}")
+        logger.info(f"Roles to create for {member}: {roles_to_create}")
         
         # Get user segments
         user_segments = self.screening_logic.get_user_segments(screening_data)
