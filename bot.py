@@ -67,11 +67,21 @@ class RuskMediaBot(commands.Bot):
 
         # Send first question directly (no separate welcome message)
         try:
+            # Add small delay to prevent rate limiting when multiple users join quickly
+            await asyncio.sleep(1)
             await self.send_screening_question_dm(member, 'gender')
             return True
         except discord.Forbidden:
             logger.warning(f"Could not DM {member}. DMs likely disabled.")
             return False
+        except discord.HTTPException as e:
+            if e.status == 400 and e.code == 40003:
+                logger.warning(f"Rate limited when DMing {member}. Will retry later.")
+                # Could implement retry logic here if needed
+                return False
+            else:
+                logger.error(f"HTTP error when DMing {member}: {e}")
+                return False
     
     async def setup_hook(self):
         """Called when the bot is starting up"""
