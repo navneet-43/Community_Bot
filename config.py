@@ -15,7 +15,8 @@ DEFAULT_CAMPAIGNS = [
     "DISCOVERY_2025",
     "FGD_SCRIPTED_SEPT24",
     "FGD_UNSCRIPTED_SEPT24",
-    "FGD_ANIME_SEPT24"
+    "FGD_ANIME_SEPT24",
+    "FGD_MICRODRAMA_SEPT24"
 ]
 
 # Screening Questions Configuration - SIMPLIFIED
@@ -44,7 +45,8 @@ SCREENING_QUESTIONS = {
         "options": [
             {"label": "🎬 Scripted series (fiction/web dramas)", "value": "scripted"},
             {"label": "📺 Unscripted reality/competition shows", "value": "unscripted"},
-            {"label": "🎌 Anime/animated series", "value": "anime"}
+            {"label": "🎌 Anime/animated series", "value": "anime"},
+            {"label": "🎭 Microdrama (short-form dramatic content)", "value": "microdrama"}
         ]
     },
     "city_tier": {
